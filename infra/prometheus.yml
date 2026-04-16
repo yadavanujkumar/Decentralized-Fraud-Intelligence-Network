@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: coordinator
+    static_configs:
+      - targets: ["coordinator:8000"]
+
+  - job_name: nodes
+    static_configs:
+      - targets:
+          - "node_1:8001"
+          - "node_2:8002"
+          - "node_3:8003"
+          - "node_4:8004"
+          - "node_5:8005"
+          - "node_6:8006"
+          - "node_7:8007"
+          - "node_malicious:8008"

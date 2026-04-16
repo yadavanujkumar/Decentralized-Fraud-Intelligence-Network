@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source
+COPY . .
+
+# Default env vars (override via docker-compose)
+ENV NODE_ID=node_1
+ENV DATA_PATH=data/simulated/node_1.csv
+ENV PORT=8001
+ENV COORDINATOR_URL=http://coordinator:8000
+ENV MALICIOUS=false
+ENV TRAIN_EPOCHS=5
+ENV PYTHONPATH=/app
+
+# Generate data at image build time for this node
+RUN python data/generate_data.py --output-dir data/simulated --n-samples 5000 || true
+
+EXPOSE ${PORT}
+
+CMD ["sh", "-c", "uvicorn services.node_service.main:app --host 0.0.0.0 --port ${PORT}"]
