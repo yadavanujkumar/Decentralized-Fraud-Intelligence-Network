@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV PYTHONPATH=/app
+ENV MODE=http
+ENV TPS=5
+ENV COORDINATOR_URL=http://coordinator:8000
+
+CMD ["sh", "-c", "python -m streaming.producer.producer --mode ${MODE} --tps ${TPS} --target ${COORDINATOR_URL}"]

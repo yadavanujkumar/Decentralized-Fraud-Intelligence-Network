@@ -1,0 +1,209 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# MeshGuard AI – docker-compose
+# ---------------------------------------------------------------------------
+# Services:
+#   coordinator  – central FL + consensus coordinator (port 8000)
+#   node_1..7    – normal federated nodes (ports 8001-8007)
+#   node_malicious – adversarial node (port 8008)
+#   producer     – real-time transaction stream
+#   kafka        – optional Kafka broker (profile: kafka)
+#   zookeeper    – Kafka dependency     (profile: kafka)
+#   prometheus   – optional metrics    (profile: monitoring)
+# ---------------------------------------------------------------------------
+
+# Separate anchor for shared environment variables so that node-specific
+# environment blocks can safely extend them without merging the full
+# service-level anchor (which would cause ambiguous merge semantics).
+x-node-env: &node-env
+  COORDINATOR_URL: http://coordinator:8000
+  TRAIN_EPOCHS: "5"
+  PYTHONPATH: /app
+
+x-node-common: &node-common
+  build:
+    context: ..
+    dockerfile: infra/docker/Dockerfile.node
+  restart: unless-stopped
+  volumes:
+    - ./data:/app/data
+  depends_on:
+    - coordinator
+  networks:
+    - meshguard
+
+services:
+  # ── Coordinator ──────────────────────────────────────────────────────────
+  coordinator:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.coordinator
+    container_name: coordinator
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      NODE_URLS: >-
+        http://node_1:8001,http://node_2:8002,http://node_3:8003,
+        http://node_4:8004,http://node_5:8005,http://node_6:8006,
+        http://node_7:8007,http://node_malicious:8008
+      PYTHONPATH: /app
+    networks:
+      - meshguard
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Normal Nodes ─────────────────────────────────────────────────────────
+  node_1:
+    <<: *node-common
+    container_name: node_1
+    ports: ["8001:8001"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_1
+      DATA_PATH: data/simulated/node_1.csv
+      PORT: "8001"
+      MALICIOUS: "false"
+
+  node_2:
+    <<: *node-common
+    container_name: node_2
+    ports: ["8002:8002"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_2
+      DATA_PATH: data/simulated/node_2.csv
+      PORT: "8002"
+      MALICIOUS: "false"
+
+  node_3:
+    <<: *node-common
+    container_name: node_3
+    ports: ["8003:8003"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_3
+      DATA_PATH: data/simulated/node_3.csv
+      PORT: "8003"
+      MALICIOUS: "false"
+
+  node_4:
+    <<: *node-common
+    container_name: node_4
+    ports: ["8004:8004"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_4
+      DATA_PATH: data/simulated/node_4.csv
+      PORT: "8004"
+      MALICIOUS: "false"
+
+  node_5:
+    <<: *node-common
+    container_name: node_5
+    ports: ["8005:8005"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_5
+      DATA_PATH: data/simulated/node_5.csv
+      PORT: "8005"
+      MALICIOUS: "false"
+
+  node_6:
+    <<: *node-common
+    container_name: node_6
+    ports: ["8006:8006"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_6
+      DATA_PATH: data/simulated/node_6.csv
+      PORT: "8006"
+      MALICIOUS: "false"
+
+  node_7:
+    <<: *node-common
+    container_name: node_7
+    ports: ["8007:8007"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_7
+      DATA_PATH: data/simulated/node_7.csv
+      PORT: "8007"
+      MALICIOUS: "false"
+
+  # ── Malicious Node ────────────────────────────────────────────────────────
+  node_malicious:
+    <<: *node-common
+    container_name: node_malicious
+    ports: ["8008:8008"]
+    environment:
+      <<: *node-env
+      NODE_ID: node_malicious
+      DATA_PATH: data/simulated/node_malicious.csv
+      PORT: "8008"
+      MALICIOUS: "true"
+
+  # ── Transaction Producer ─────────────────────────────────────────────────
+  producer:
+    build:
+      context: ..
+      dockerfile: infra/docker/Dockerfile.producer
+    container_name: producer
+    environment:
+      MODE: http
+      TPS: "5"
+      COORDINATOR_URL: http://coordinator:8000
+      PYTHONPATH: /app
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - meshguard
+    restart: unless-stopped
+
+  # ── Kafka (optional) ─────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    profiles: ["kafka"]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - meshguard
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    profiles: ["kafka"]
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - meshguard
+
+  # ── Prometheus (optional) ────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: prometheus
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    networks:
+      - meshguard
+
+networks:
+  meshguard:
+    driver: bridge
